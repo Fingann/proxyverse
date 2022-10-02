@@ -1,45 +1,73 @@
 package main
 
 import (
-	"backslide/proxy"
-	"bytes"
+	//"bytes"
+	"flag"
+	"io"
 	"net/http"
 	"os"
-	"strings"
+	"proxyverse/config"
+	"proxyverse/proxy"
 	"sync"
-	"text/template"
+
+	//"text/template"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
+	// user can specify cli args to override config file
+	var rewritesFile string
+	flag.StringVar(&rewritesFile, "r", "rewrites.yaml", "rewrites file")
+	flag.Parse()
+
 	log, _ := zap.NewProduction()
 	defer log.Sync()
 
-	encoderCfg := zapcore.EncoderConfig{
-		MessageKey:     "",
-		LevelKey:       "",
-		NameKey:        "request",
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeDuration: zapcore.StringDurationEncoder,
-	}
-	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), os.Stdout, zap.DebugLevel)
-	requestLogger := zap.New(core).WithOptions(zap.WithCaller(false))
+	requestLogger := createRequestLogger()
 	//logS := logger.Sugar()
 
-	routes, err := proxy.ReadRouteFile("routes.yaml")
+	servers, err := config.ParseRewritesFile(rewritesFile)
 	if err != nil {
-		log.Sugar().Fatalf(err.Error(),
-			"path", "routes.yaml")
+		log.Sugar().Fatalf(err.Error(), "path", rewritesFile)
 	}
-	wg := &sync.WaitGroup{}
 
-	addrProxyMap := proxy.AddrProxyMappings(routes)
+	// group all proxies by address
+	addrMap:= make(map[string][]*proxy.ServerProxy)
+	for _, server := range servers {
+		serverProxy, err := proxy.NewServerProxy(server)
+		if err != nil {
+			log.Sugar().Fatalf(err.Error(), "server", server)
+		}
+		addrMap[serverProxy.Addr] = append(addrMap[serverProxy.Addr], serverProxy)
+	}
+
+	wg := &sync.WaitGroup{}	
+	// start a server for each address
+	for addr, serverProxy := range addrMap {
+		wg.Add(1)
+
+		go func(addr string,serverProxy []*proxy.ServerProxy) {
+			defer wg.Done()
+		log.Sugar().Infow("Listening on", "addr",addr)
+
+		serverMux := http.NewServeMux()
+			serverMux.HandleFunc("/", ProxyRequestHandler(requestLogger, serverProxy))
+			srv := http.Server{
+				Addr:    addr,
+				Handler: serverMux,
+			}
+			log.Sugar().Fatal(srv.ListenAndServe())
+		}(addr, serverProxy)
+	}
+
+	/*
+	addrProxyMap := proxy.AddrProxyMappings(servers)
 	for addr, proxyHandler := range addrProxyMap {
 		wg.Add(1)
-		go func(addr string, proxyHandler []*proxy.ProxyServerHandler) {
+		go func(addr string, proxyHandler []*proxy.ServerProxy) {
 			defer wg.Done()
 			log.Info("Listening:", zap.String("addr", addr))
 			serverMux := http.NewServeMux()
@@ -51,54 +79,65 @@ func main() {
 			log.Sugar().Fatal(srv.ListenAndServe())
 		}(addr, proxyHandler)
 	}
+	*/
 
 	wg.Wait()
 }
 
-// ProxyRequestHandler handles the http request using proxy
-func ProxyRequestHandler(log *zap.Logger, proxyHandlers []*proxy.ProxyServerHandler) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		match := &proxy.ProxyMatch{}
-		for _, proxyHandler := range proxyHandlers {
+func createRequestLogger() *zap.Logger {
 
-			// check if host matches
-			if !proxyHandler.ServerRegex.MatchString(r.Host) {
+	encoderCfg := zapcore.EncoderConfig{
+		MessageKey:     "",
+		LevelKey:       "",
+		NameKey:        "request",
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.StringDurationEncoder,
+	}
+	// lumberjack.Logger is already safe for concurrent use, so we don't need to
+	// lock it.
+	w := zapcore.AddSync(
+		io.MultiWriter(
+			&lumberjack.Logger{
+				Filename:   "./logs/access.log",
+				MaxSize:    500, // megabytes
+				MaxBackups: 3,
+				MaxAge:     28, // days
+			},
+			os.Stdout,
+		),
+	)
+	core := zapcore.NewCore(
+		zapcore.NewJSONEncoder(encoderCfg),
+		w,
+		zap.DebugLevel,
+	)
+
+	requestLogger := zap.New(core).WithOptions(zap.WithCaller(false))
+	return requestLogger
+}
+
+// ProxyRequestHandler handles the http request using proxy
+func ProxyRequestHandler(log *zap.Logger, serverProxies []*proxy.ServerProxy) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		for _, serverProxy := range serverProxies {
+			// if the request matches the a
+			if !serverProxy.Match(r) {
 				continue
 			}
-			match.Host = r.Host
-			
-
-			for _, location := range proxyHandler.Locations {
+			// check all rewrite rules
+			for _, rewrite := range serverProxy.Rewrites {
 				// check if path matches
-				if !location.UriRegex.MatchString(r.URL.RequestURI()) {
+				if !rewrite.Match(r) {
 					continue
 				}
-				match.Match=location.Uri
-
-				if strings.HasSuffix(location.Uri, "/") {
-					r.URL.Path = strings.TrimPrefix(r.URL.Path, location.Uri)
-				}
-				match.Uri=r.URL.Path
-				match.Addr=proxyHandler.Server.Addr
-				logReq:= proxy.NewRequestLog(r, match)
-				proxy.LogRequest(log, logReq)
-
-				for _, v := range location.Headers {
-					buf := &bytes.Buffer{}
-					k,_ := template.New("header").Parse(v.Value)
-					k.Execute(buf, logReq.OriginalRequest)
-					r.Header.Add(v.Name, buf.String())
-				}
-					
-				
-
-
-				location.Proxy.ServeHTTP(w, r)
+				proxy.LogRequest(log, proxy.NewRequestLog(r, nil))
+				rewrite.Proxy.ServeHTTP(w, r)
 				return
 			}
 
 		}
-		proxy.LogRequest(log, proxy.NewRequestLog(r, match))
+		proxy.LogRequest(log, proxy.NewRequestLog(r, nil))
 		// if no proxy matches, then return 404
 		w.WriteHeader(http.StatusNotFound)
 	}
