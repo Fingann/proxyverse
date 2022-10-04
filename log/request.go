@@ -1,14 +1,16 @@
-package proxy
+package log 
 
 import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
 
 type Request struct {
+	timestamp string
 	Host string
 	Method string
 	Path string
@@ -19,6 +21,7 @@ type Request struct {
 	Proto string
 	ProtoMajor int
 	ProtoMinor int
+	PrivateIp bool
 	RemoteAddr string
 	RemoteIp string
 	RemotePort string
@@ -54,10 +57,12 @@ func LogRequest(logger *zap.Logger, logRequest *RequestLog) {
 
 func ToZapField(r *RequestLog) []zap.Field{
 	fields := []zap.Field{
+		zap.String("time", time.Now().Format(time.RFC3339)),
 		zap.String("method", r.OriginalRequest.Method),
 		zap.String("host", r.OriginalRequest.Host),
 		zap.String("remote", r.OriginalRequest.RemoteAddr),
 		zap.String("url", r.OriginalRequest.RequestURI),
+		zap.Bool("private_ip", r.OriginalRequest.PrivateIp),
 		zap.Int64("content_length", r.OriginalRequest.ContentLength),
 		zap.String("user_agent", r.OriginalRequest.UserAgent),
 		zap.String("referer", r.OriginalRequest.Referer),
@@ -83,6 +88,7 @@ func ToZapField(r *RequestLog) []zap.Field{
 
 func FromHttpRequest(r *http.Request) (*Request) {
 	ip,port,_ := net.SplitHostPort(r.RemoteAddr)
+	ipAddr := net.ParseIP(ip)
 	return &Request{
 		Path: r.URL.Path,
 		Host: r.Host,
@@ -92,6 +98,7 @@ func FromHttpRequest(r *http.Request) (*Request) {
 		Proto: r.Proto,
 		ProtoMajor: r.ProtoMajor,
 		ProtoMinor: r.ProtoMinor,
+		PrivateIp: ipAddr.IsPrivate(),
 		RemoteAddr: r.RemoteAddr,
 		RemoteIp: ip,
 		RemotePort: port,

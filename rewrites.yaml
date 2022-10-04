@@ -1,6 +1,7 @@
-- host: "example.com"
-  addr: ":8080"
-  rewrite:
+- server: 
+    host: "example.com"
+    addr: ":8080"
+  rewrites:
     - path: /test
       target: http://localhost:4444
     - path: /rest/
@@ -16,8 +17,20 @@
       target: http://localhost:4444/test/
     - path: /jest/
       target: http://localhost:4444/test/
-- host: example.com
-  addr: ":9000"
-  rewrite:
-    - path: /t[de]st
-      target: http://localhost:4444
+
+- server:
+    host: example.com
+    addr: ":9000"
+  rewrites:
+    - path: /
+      redirect: true
+      target: https://vg.no
+
+- server:
+    host: example.com
+    addr: ":8088"
+    ssl: true
+  rewrites:
+    - path: /
+      redirect: true
+      target: https://vg.no

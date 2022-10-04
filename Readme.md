@@ -12,18 +12,20 @@ Benefits:
     
 ```yaml
 - host: "example.com"
-  locations:
-    - uri: /gest
-      target: http://localhost:4444/test
-      headers:
-        - name: "X-Real-IP"
-          value: "{{ .RemoteIp }}"
-
+  addr: ":80"
+  rewrite:
+    - path: /
+      redirect: "https://example.com"
 - host: example.com
   addr: ":443"
-  locations:
-    - uri: /api-v[0-9]+
-      target: http://localhost:4444
+  rewrite:
+    - path: /gest
+      headers:
+        - key: "X-Real-IP"
+          value: "{{ .RemoteIp }}"
+      target: http://localhost:4444/test
+    - path: /pest/
+      target: http://localhost:4444/test/
 
 ```
 
