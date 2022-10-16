@@ -1,8 +1,8 @@
 listeners:
-  - addr: ":8080"
+  - addr: ":443"
     ssl: true
     domains:
-      - name: "example.com"
+      - name: "fingann.dev"
         rewrites:
           - path: /keep
             target: http://localhost:4444/base
@@ -18,10 +18,10 @@ listeners:
             redirect: true
             target: https://vg.no
   
-  - addr: ":9000"
+  - addr: ":80"
     domains:
-      - name: "example.com"
+      - name: "fingann.dev"
         rewrites:
           - path: /
             redirect: true
-            target: http://localhost:8080
+            target: http://vg.no

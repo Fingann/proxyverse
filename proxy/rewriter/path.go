@@ -31,7 +31,7 @@ func (p *PathRewriter) Handle(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	p.Proxy.ServeHTTP(w, req)
-
+}
 
 func (p *PathRewriter) Match(req *http.Request) bool {
 	return p.pathRegex.MatchString(req.URL.Path)
@@ -71,7 +71,6 @@ func modifyHeaders(req *http.Request, headers []config.Header) {
 		req.Header.Add(header.Key, buf.String())
 	}
 }
-
 
 func errorHandler() func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, req *http.Request, err error) {
