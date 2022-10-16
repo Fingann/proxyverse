@@ -1,9 +1,9 @@
-# Proxyverse
+# Proxyverse [WIP]
 
 Proxyverse is a reverse proxy. The goal is to provide a simple, easy to use, and secure reverse proxy.
 Made as an alternative to nginx, apache, and other reverse proxies.
 
-Benefits:
+**Benefits**:
 - Simple route configuration
 - One binary
 
