@@ -11,23 +11,59 @@ Benefits:
 ## route.yaml example
     
 ```yaml
-- host: "example.com"
-  addr: ":80"
-  rewrite:
-    - path: /
-      redirect: "https://example.com"
-- host: example.com
-  addr: ":443"
-  rewrite:
-    - path: /gest
-      headers:
-        - key: "X-Real-IP"
-          value: "{{ .RemoteIp }}"
-      target: http://localhost:4444/test
-    - path: /pest/
-      target: http://localhost:4444/test/
+listeners:
+  - addr: ":443"
+    ssl: true
+    domains:
+      - name: "fingann.dev"
+        rewrites:
+          - path: /keep
+            target: http://localhost:4444/base
+          - path: /drop/
+            headers:
+              - key: "X-Real-IP"
+                value: "{{ .RemoteIp }}"
+            target: http://localhost:4444/base
+
+      - name: "company.it"
+        rewrites:
+          - path: /
+            redirect: true
+            target: https://vg.no
+  
+  - addr: ":80"
+    domains:
+      - name: "fingann.dev"
+        rewrites:
+          - path: /
+            redirect: true
+            target: http://vg.no
+
 
 ```
+
+### Variables that can be templated
+```
+  timestamp string
+	Host string
+	Method string
+	Path string
+	RequestURI string
+	UserAgent string
+	ContentLength int64
+	Headers map[string][]string
+	Proto string
+	ProtoMajor int
+	ProtoMinor int
+	PrivateIp bool
+	RemoteAddr string
+	RemoteIp string
+	RemotePort string
+	TransferEncoding []string
+	Referer string
+	Scheme string
+  ```
+
 
 
 
